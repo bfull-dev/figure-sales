@@ -211,7 +211,7 @@ app.get('/api/products', requireAuth, async (_req, res) => {
 
     const [records167, records629] = await Promise.all([
       fetchAllRecords(167, API_TOKEN_167,
-        '非表示 not in ("ON") order by 予約開始日 desc', fields167),
+        'サイト表示 in ("ON") order by 予約開始日 desc', fields167),
       fetchAllRecords(629, API_TOKEN_629,
         'order by $id asc', fields629),
     ]);
