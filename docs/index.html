@@ -122,7 +122,9 @@
     display: inline-block; padding: 3px 10px; border-radius: 4px;
     font-size: .75rem; font-weight: 700; letter-spacing: .05em;
   }
-  .start-date { font-size: .78rem; color: #888; }
+  .end-date { font-size: .78rem; color: #888; }
+  .end-date.urgent { color: #c0392b; font-weight: 700; }
+  .end-date.expired { color: #aaa; font-style: italic; }
 
   /* Image area */
   .card-image-wrap {
@@ -346,6 +348,12 @@
       </div>
     </div>
 
+    <!-- Search -->
+    <div class="filter-section">
+      <span class="filter-label">検索</span>
+      <input type="text" id="search-input" class="filter-select" placeholder="商品名・JANコード" style="min-width:160px">
+    </div>
+
     <button class="reset-btn" id="reset-btn">リセット</button>
     <span class="filter-count" id="filter-count"></span>
   </div>
@@ -398,6 +406,7 @@ let allBrands = [];
 let selectedStartWeek = '';
 let selectedEndWeek = '';
 let showReleased = false;
+let searchText = '';
 
 // ── Date helpers ─────────────────────────────────────────────────────────────
 function toDate(str) {
@@ -451,7 +460,22 @@ function formatRelease(dateStr) {
   if (!dateStr) return '未定';
   const d = toDate(dateStr);
   if (!d || isNaN(d.getTime())) return dateStr;
+  const today = new Date(); today.setHours(0,0,0,0);
+  if (d <= today) return '発売済み';
   return `${d.getFullYear()}年${d.getMonth()+1}月`;
+}
+
+function deadlineStatus(dateStr) {
+  if (!dateStr) return null;
+  const d = toDate(dateStr);
+  if (!d) return null;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const diffDays = Math.floor((today - d) / 86400000);
+  if (diffDays >= 6) return { label: 'お問合せください。', state: 'expired' };
+  const weekMon = startOfWeekMonday(today);
+  const weekSun = new Date(weekMon); weekSun.setDate(weekMon.getDate() + 6); weekSun.setHours(23,59,59,999);
+  if (d >= weekMon && d <= weekSun) return { label: `締切: ${formatDate(d)}`, state: 'urgent' };
+  return { label: `締切: ${formatDate(d)}`, state: 'normal' };
 }
 
 // ── Image URL ─────────────────────────────────────────────────────────────────
@@ -467,6 +491,13 @@ function applyFilters(cards) {
     if (selectedStartWeek && !isInWeek(c.reservationStartDate, selectedStartWeek)) return false;
     if (selectedEndWeek && !isInWeek(c.reservationEndDate, selectedEndWeek)) return false;
     if (!showReleased && isReleased(c)) return false;
+    if (searchText) {
+      const q = searchText.toLowerCase();
+      const hit = c.products.some(p =>
+        p.productName.toLowerCase().includes(q) || p.janCode.includes(q)
+      );
+      if (!hit) return false;
+    }
     return true;
   });
 }
@@ -590,12 +621,12 @@ function buildCardEl(card) {
   badge.textContent = card.brand;
   badge.style.backgroundColor = s.bg;
   badge.style.color = s.color;
-  const startDate = document.createElement('span');
-  startDate.className = 'start-date';
-  startDate.textContent = card.reservationStartDate
-    ? `予約開始: ${formatDate(toDate(card.reservationStartDate))}` : '';
+  const endDateEl = document.createElement('span');
+  const ds = deadlineStatus(card.reservationEndDate);
+  endDateEl.className = 'end-date' + (ds ? ` ${ds.state}` : '');
+  endDateEl.textContent = ds ? ds.label : '';
   header.appendChild(badge);
-  header.appendChild(startDate);
+  header.appendChild(endDateEl);
   el.appendChild(header);
 
   // Image
@@ -644,7 +675,7 @@ function buildCardEl(card) {
 
       const name = document.createElement('div');
       name.className = 'product-name';
-      name.textContent = `${i+1}. ${p.productName}`;
+      name.textContent = p.productName;
       item.appendChild(name);
 
       const meta = document.createElement('div');
@@ -691,7 +722,14 @@ function buildCardEl(card) {
   };
 
   addInfo('予約開始', card.reservationStartDate ? formatDate(toDate(card.reservationStartDate)) : null);
-  addInfo('締切日', card.reservationEndDate ? formatDate(toDate(card.reservationEndDate)) : null);
+  {
+    const ds = deadlineStatus(card.reservationEndDate);
+    if (ds) {
+      const row = document.createElement('span');
+      row.innerHTML = `<span class="info-label">締切日</span><span${ds.state === 'urgent' ? ' style="color:#c0392b;font-weight:700"' : ds.state === 'expired' ? ' style="color:#aaa;font-style:italic"' : ''}>${ds.label.replace('締切: ','')}</span>`;
+      info.appendChild(row);
+    }
+  }
   addInfo('発売予定', formatRelease(card.releaseDate));
   addInfo('材料', card.material);
   addInfo('生産国', card.productionCountry);
@@ -859,10 +897,17 @@ document.getElementById('reset-btn').addEventListener('click', () => {
   selectedStartWeek = '';
   selectedEndWeek = '';
   showReleased = false;
+  searchText = '';
   document.getElementById('start-week-select').value = '';
   document.getElementById('end-week-select').value = '';
   document.getElementById('released-toggle').checked = false;
+  document.getElementById('search-input').value = '';
   updateChips();
+  renderFiltered();
+});
+
+document.getElementById('search-input').addEventListener('input', e => {
+  searchText = e.target.value.trim();
   renderFiltered();
 });
 
