@@ -108,17 +108,11 @@ function buildCards(records167, map629) {
       brandMap.get(brand).push(v);
     }
 
-    // Release date: prefer App629 発売予定日, fallback App167 発売月
-    const releaseDate =
-      (rec629 && rec629['発売予定日']?.value) ||
-      rec['発売月']?.value ||
-      null;
+    // Release date: App167 発売月 only
+    const releaseDate = rec['発売月']?.value || null;
 
-    // Reservation end: prefer App629 ご予約締め切り日, fallback App167 予約締切日
-    const reservationEndDate =
-      (rec629 && rec629['ご予約締め切り日']?.value) ||
-      rec['予約締切日']?.value ||
-      null;
+    // Reservation end: App167 予約締切日 only
+    const reservationEndDate = rec['予約締切日']?.value || null;
 
     for (const [brand, rows] of brandMap) {
       // Pick image fileKey

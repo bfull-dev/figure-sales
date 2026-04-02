@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Bfull FOTS JAPAN ｜ インサイト 商材ダウンロードサイト</title>
+<title>Bfull FOTS JAPAN ｜ インサイト 商材画像ダウンロードサイト</title>
 <style>
   /* ── Reset & Base ── */
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -297,7 +297,7 @@
 <!-- ████ LOGIN SCREEN ████ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>Bfull FOTS JAPAN ｜ インサイト<br>商材ダウンロードサイト</h1>
+    <h1>Bfull FOTS JAPAN<br>インサイト<br>商材画像ダウンロードサイト</h1>
     <p>パスワードを入力してください</p>
     <input type="password" id="pw-input" placeholder="パスワード" autocomplete="current-password">
     <button class="login-btn" id="login-btn">ログイン</button>
@@ -308,7 +308,7 @@
 <!-- ████ APP ████ -->
 <div id="app">
   <header>
-    <h1>Bfull FOTS JAPAN ｜ インサイト<br>商材ダウンロードサイト</h1>
+    <h1>Bfull FOTS JAPAN<br>インサイト<br>商材画像ダウンロードサイト</h1>
     <div class="header-meta">
       <span id="last-update"></span>
       <span id="header-count"></span>
@@ -450,6 +450,7 @@ function isReleased(card) {
 function formatRelease(dateStr) {
   if (!dateStr) return '未定';
   const d = toDate(dateStr);
+  if (!d || isNaN(d.getTime())) return dateStr;
   return `${d.getFullYear()}年${d.getMonth()+1}月`;
 }
 
@@ -798,6 +799,7 @@ async function loadProducts(token) {
     buildFilterOptions(allCards);
     renderFiltered();
     hideLoading();
+    if (!localStorage.getItem('notice_confirmed')) showNotice();
   } catch {
     hideLoading();
     document.getElementById('card-grid').style.display = 'grid';
@@ -834,10 +836,18 @@ document.getElementById('pw-input').addEventListener('keydown', e => {
 
 document.getElementById('start-week-select').addEventListener('change', e => {
   selectedStartWeek = e.target.value;
+  if (selectedStartWeek !== '') {
+    selectedEndWeek = '';
+    document.getElementById('end-week-select').value = '';
+  }
   renderFiltered();
 });
 document.getElementById('end-week-select').addEventListener('change', e => {
   selectedEndWeek = e.target.value;
+  if (selectedEndWeek !== '') {
+    selectedStartWeek = '';
+    document.getElementById('start-week-select').value = '';
+  }
   renderFiltered();
 });
 document.getElementById('released-toggle').addEventListener('change', e => {
@@ -857,39 +867,21 @@ document.getElementById('reset-btn').addEventListener('click', () => {
 });
 
 // ── Notice Overlay ────────────────────────────────────────────────────────────
-function showNotice(onConfirm) {
+function showNotice() {
   const overlay = document.getElementById('notice-overlay');
   overlay.classList.remove('hidden');
   document.getElementById('notice-confirm-btn').addEventListener('click', () => {
     overlay.classList.add('hidden');
     localStorage.setItem('notice_confirmed', '1');
-    onConfirm();
   }, { once: true });
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 (function init() {
   const token = sessionStorage.getItem('site_token');
-  const noticed = localStorage.getItem('notice_confirmed');
-
-  if (!noticed) {
-    // 初回訪問: 注意書きを表示し、並行してデータを先読み
-    if (token) {
-      // ログイン済み → アプリ画面をバックグラウンドで準備しつつ注意書きを表示
-      showApp();
-      const loadPromise = loadProducts(token);
-      showNotice(() => { /* データはすでに読み込み中 */ });
-    } else {
-      // 未ログイン → 注意書きを表示してからログイン画面へ
-      showLogin();
-      showNotice(() => { /* ログイン画面がそのまま表示される */ });
-    }
-  } else {
-    // 確認済み → 通常フロー
-    if (!token) { showLogin(); return; }
-    showApp();
-    loadProducts(token);
-  }
+  if (!token) { showLogin(); return; }
+  showApp();
+  loadProducts(token);
 })();
 </script>
 </body>
