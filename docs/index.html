@@ -126,7 +126,7 @@
 
   /* Image area */
   .card-image-wrap {
-    position: relative; width: 100%; padding-top: 75%; /* 4:3 */
+    position: relative; width: 100%; padding-top: 100%; /* 1:1 */
     background: #eee; overflow: hidden;
   }
   .card-image-wrap img {
@@ -162,6 +162,17 @@
   .card-info { font-size: .8rem; color: #666; display: flex; flex-direction: column; gap: 4px; }
   .card-info span { display: flex; gap: 6px; }
   .info-label { color: #999; min-width: 72px; }
+
+  /* Download button */
+  .dl-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 14px; border-radius: 6px;
+    background: #1a5fa8; color: #fff; border: none;
+    font-size: .8rem; font-weight: 600; text-decoration: none;
+    transition: background .2s; cursor: pointer;
+  }
+  .dl-btn:hover { background: #144982; }
+  .desc-dl-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
   /* Description toggle */
   .desc-btn {
@@ -271,11 +282,12 @@
     <div class="notice-header"><span>【重要】</span>販売店様専用ページ ご利用上の注意</div>
     <div class="notice-body">
       <ul>
-        <li>本サイトの情報は販売店様向け専用です。第三者へのID・パスワードの共有はご遠慮ください。</li>
+        <li>本サイトの情報は販売店様向け専用です。第三者へのURLやパスワードの共有はご遠慮ください。</li>
         <li>機密保持について：一般公開前の情報はSNS等での発信を控え、各商品の情報解禁日時を厳守してください。</li>
         <li>対象年齢について：15歳以上・18歳以上向けの商品情報を含みます。閲覧にはご注意ください。</li>
         <li>注文方法について：ご注文は従来どおり、各卸問屋様などお取引先へお願いいたします。</li>
         <li>商品仕様・納期について：掲載情報は随時更新されますが、生産の都合上、発売時期や仕様が変更になる場合がございます。</li>
+        <li>画像データ読み込みに少々お時間がかかります。</li>
       </ul>
     </div>
     <button class="notice-confirm-btn" id="notice-confirm-btn">確認しました</button>
@@ -460,9 +472,16 @@ function applyFilters(cards) {
 
 // ── Render ────────────────────────────────────────────────────────────────────
 function buildFilterOptions(cards) {
-  // Brands
+  // Brands — fixed sort order
+  const BRAND_ORDER = ['Bfull FOTS JAPAN', 'インサイト', "B'full", 'Premium Insight', 'FIGUREX'];
   const brandSet = new Set(cards.map(c => c.brand));
-  allBrands = [...brandSet];
+  allBrands = [...brandSet].sort((a, b) => {
+    const ai = BRAND_ORDER.indexOf(a), bi = BRAND_ORDER.indexOf(b);
+    if (ai === -1 && bi === -1) return a.localeCompare(b);
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+    return ai - bi;
+  });
   selectedBrands = new Set(allBrands);
   const chipsEl = document.getElementById('brand-chips');
   chipsEl.innerHTML = '';
@@ -491,10 +510,24 @@ function buildWeekDropdown(selectId, cards, field) {
     const key = weekKey(d);
     countMap.set(key, (countMap.get(key) || 0) + 1);
   }
-  const sorted = [...countMap.entries()].sort((a,b) => a[0].localeCompare(b[0]));
+  let entries = [...countMap.entries()];
+  if (selectId === 'start-week-select') {
+    // 降順（最新週を上に）
+    entries.sort((a, b) => b[0].localeCompare(a[0]));
+  } else {
+    // 締切週：当月以降のみ、昇順
+    const today = new Date();
+    const thisMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    entries = entries
+      .filter(([key]) => {
+        const weekEnd = toDate(key.split('_')[1]);
+        return weekEnd >= thisMonthStart;
+      })
+      .sort((a, b) => a[0].localeCompare(b[0]));
+  }
   const sel = document.getElementById(selectId);
   sel.innerHTML = '<option value="">すべて</option>';
-  for (const [key, cnt] of sorted) {
+  for (const [key, cnt] of entries) {
     const opt = document.createElement('option');
     opt.value = key;
     opt.textContent = weekLabel(key, cnt);
@@ -631,7 +664,6 @@ function buildCardEl(card) {
         meta.appendChild(span);
       }
       addMeta('JAN', p.janCode);
-      addMeta('流通', p.distribution);
       item.appendChild(meta);
 
       if (p.note) {
@@ -657,6 +689,7 @@ function buildCardEl(card) {
     info.appendChild(row);
   };
 
+  addInfo('予約開始', card.reservationStartDate ? formatDate(toDate(card.reservationStartDate)) : null);
   addInfo('締切日', card.reservationEndDate ? formatDate(toDate(card.reservationEndDate)) : null);
   addInfo('発売予定', formatRelease(card.releaseDate));
   addInfo('材料', card.material);
@@ -664,7 +697,10 @@ function buildCardEl(card) {
   if (card.copyright) addInfo('©', card.copyright);
   body.appendChild(info);
 
-  // Description
+  // Description + Download button row
+  const descDlRow = document.createElement('div');
+  descDlRow.className = 'desc-dl-row';
+
   if (card.description) {
     const descBtn = document.createElement('button');
     descBtn.className = 'desc-btn';
@@ -677,8 +713,21 @@ function buildCardEl(card) {
       descContent.classList.toggle('open');
       descBtn.textContent = descBtn.classList.contains('open') ? '閉じる' : '詳細を見る';
     });
-    body.appendChild(descBtn);
+    descDlRow.appendChild(descBtn);
+    body.appendChild(descDlRow);
     body.appendChild(descContent);
+  } else {
+    body.appendChild(descDlRow);
+  }
+
+  if (card.boxOrderUrl) {
+    const dlBtn = document.createElement('a');
+    dlBtn.className = 'dl-btn';
+    dlBtn.href = card.boxOrderUrl;
+    dlBtn.target = '_blank';
+    dlBtn.rel = 'noopener';
+    dlBtn.innerHTML = '📥 データDL';
+    descDlRow.appendChild(dlBtn);
   }
 
   el.appendChild(body);
@@ -732,7 +781,14 @@ async function loadProducts(token) {
     }
     if (!res.ok) throw new Error('fetch failed');
     const data = await res.json();
-    allCards = (data.cards || []).map(c => ({ ...c, brand: brandDisplayName(c.brand) }));
+    allCards = (data.cards || [])
+      .map(c => ({ ...c, brand: brandDisplayName(c.brand) }))
+      .sort((a, b) => {
+        if (!a.reservationStartDate && !b.reservationStartDate) return 0;
+        if (!a.reservationStartDate) return 1;
+        if (!b.reservationStartDate) return -1;
+        return b.reservationStartDate.localeCompare(a.reservationStartDate);
+      });
 
     document.getElementById('last-update').textContent =
       `最終更新: ${new Date(data.fetchedAt).toLocaleString('ja-JP')}`;
