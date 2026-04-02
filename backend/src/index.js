@@ -17,6 +17,10 @@ const SITE_PASSWORD = process.env.SITE_PASSWORD;
 // Valid tokens (server-side Set, reset on restart)
 const validTokens = new Set();
 
+// ── Products cache ──────────────────────────────────────────────────────────
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5分
+let productsCache = { data: null, fetchedAt: null };
+
 // ── Middleware ──────────────────────────────────────────────────────────────
 
 app.use(cors({
@@ -203,6 +207,14 @@ app.get('/api/products', requireAuth, async (_req, res) => {
       '材料選択', '生産国', 'カートン入数',
     ];
 
+    // キャッシュが有効な場合はそのまま返す
+    const now = Date.now();
+    if (productsCache.data && (now - productsCache.fetchedAt) < CACHE_TTL_MS) {
+      console.log(`[cache] HIT (age: ${Math.round((now - productsCache.fetchedAt) / 1000)}s)`);
+      return res.json(productsCache.data);
+    }
+
+    console.log('[cache] MISS — fetching from Kintone');
     const [records167, records629] = await Promise.all([
       fetchAllRecords(167, API_TOKEN_167,
         'サイト表示 in ("ON") order by 予約開始日 desc', fields167),
@@ -220,12 +232,17 @@ app.get('/api/products', requireAuth, async (_req, res) => {
     }
 
     const cards = buildCards(records167, map629);
-
-    res.json({
+    const responseData = {
       cards,
       fetchedAt: new Date().toISOString(),
       total: cards.length,
-    });
+    };
+
+    // キャッシュを更新
+    productsCache = { data: responseData, fetchedAt: Date.now() };
+    console.log(`[cache] STORED ${cards.length} cards`);
+
+    res.json(responseData);
   } catch (err) {
     console.error('Error fetching products:', err);
     res.status(503).json({ error: 'データを取得できませんでした', code: 'KINTONE_ERROR' });
