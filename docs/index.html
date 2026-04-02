@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>フィギュア予約受注サイト</title>
+<title>Bfull FOTS JAPAN ｜ インサイト 商材ダウンロードサイト</title>
 <style>
   /* ── Reset & Base ── */
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -211,6 +211,50 @@
   /* ── Empty state within grid ── */
   .empty-grid { grid-column: 1/-1; }
 
+  /* ── Notice Overlay ── */
+  #notice-overlay {
+    position: fixed; inset: 0; z-index: 9999;
+    background: rgba(0,0,0,.65);
+    display: flex; align-items: center; justify-content: center;
+    padding: 16px;
+  }
+  #notice-overlay.hidden { display: none; }
+  .notice-modal {
+    background: #fff; border-radius: 12px;
+    max-width: 560px; width: 100%;
+    max-height: 90vh; overflow-y: auto;
+    box-shadow: 0 8px 40px rgba(0,0,0,.3);
+  }
+  .notice-header {
+    background: #1a1a2e; color: #fff;
+    padding: 18px 24px; border-radius: 12px 12px 0 0;
+    font-size: 1rem; font-weight: 700; text-align: center; letter-spacing: .04em;
+  }
+  .notice-header span { color: #f0c040; margin-right: 6px; }
+  .notice-body {
+    padding: 24px;
+  }
+  .notice-body ul {
+    list-style: none; display: flex; flex-direction: column; gap: 14px;
+  }
+  .notice-body li {
+    font-size: .88rem; line-height: 1.7; color: #333;
+    padding-left: 1.4em; position: relative;
+  }
+  .notice-body li::before {
+    content: '◯'; position: absolute; left: 0; color: #1a5fa8; font-size: .8rem; top: .1em;
+  }
+  .notice-body li strong { color: #c0392b; }
+  .notice-confirm-btn {
+    display: block; width: calc(100% - 48px);
+    margin: 0 24px 24px; padding: 14px;
+    background: #1a1a2e; color: #fff;
+    border: none; border-radius: 8px;
+    font-size: 1rem; font-weight: 700; cursor: pointer;
+    transition: background .2s; letter-spacing: .05em;
+  }
+  .notice-confirm-btn:hover { background: #333; }
+
   /* ── Responsive ── */
   @media (max-width: 768px) {
     #filter-bar { padding: 10px 14px; }
@@ -221,10 +265,27 @@
 </head>
 <body>
 
+<!-- ████ NOTICE OVERLAY ████ -->
+<div id="notice-overlay" class="hidden">
+  <div class="notice-modal">
+    <div class="notice-header"><span>【重要】</span>販売店様専用ページ ご利用上の注意</div>
+    <div class="notice-body">
+      <ul>
+        <li>本サイトの情報は販売店様向け専用です。第三者へのID・パスワードの共有はご遠慮ください。</li>
+        <li>機密保持について：一般公開前の情報はSNS等での発信を控え、各商品の情報解禁日時を厳守してください。</li>
+        <li>対象年齢について：15歳以上・18歳以上向けの商品情報を含みます。閲覧にはご注意ください。</li>
+        <li>注文方法について：ご注文は従来どおり、各卸問屋様などお取引先へお願いいたします。</li>
+        <li>商品仕様・納期について：掲載情報は随時更新されますが、生産の都合上、発売時期や仕様が変更になる場合がございます。</li>
+      </ul>
+    </div>
+    <button class="notice-confirm-btn" id="notice-confirm-btn">確認しました</button>
+  </div>
+</div>
+
 <!-- ████ LOGIN SCREEN ████ -->
 <div id="login-screen">
   <div class="login-card">
-    <h1>フィギュア予約受注サイト</h1>
+    <h1>Bfull FOTS JAPAN ｜ インサイト<br>商材ダウンロードサイト</h1>
     <p>パスワードを入力してください</p>
     <input type="password" id="pw-input" placeholder="パスワード" autocomplete="current-password">
     <button class="login-btn" id="login-btn">ログイン</button>
@@ -235,7 +296,7 @@
 <!-- ████ APP ████ -->
 <div id="app">
   <header>
-    <h1>フィギュア予約受注サイト</h1>
+    <h1>Bfull FOTS JAPAN ｜ インサイト<br>商材ダウンロードサイト</h1>
     <div class="header-meta">
       <span id="last-update"></span>
       <span id="header-count"></span>
@@ -297,17 +358,25 @@
 // ── Config ──────────────────────────────────────────────────────────────────
 const API_BASE = 'https://figure-sales-production.up.railway.app';
 
+// ── Brand display name mapping (Kintone値 → 表示名) ─────────────────────────
+const BRAND_DISPLAY_NAMES = {
+  'FOTS': 'Bfull FOTS JAPAN',
+};
+function brandDisplayName(brand) {
+  return BRAND_DISPLAY_NAMES[brand] || brand;
+}
+
 // ── Brand styles ─────────────────────────────────────────────────────────────
 const BRAND_STYLES = {
-  'インサイト':      { bg: '#ee82ee', color: '#000000' },
-  'FOTS':           { bg: '#ff8c00', color: '#ffffff' },
-  "B'full":         { bg: '#ffa500', color: '#000000' },
-  'Premium Insight':{ bg: '#ee82ee', color: '#000000' },
-  'FIGUREX':        { bg: '#00008b', color: '#ffffff' },
+  'インサイト':        { bg: '#ee82ee', color: '#000000' },
+  'Bfull FOTS JAPAN': { bg: '#ff8c00', color: '#ffffff' },
+  "B'full":            { bg: '#ffa500', color: '#000000' },
+  'Premium Insight':   { bg: '#ee82ee', color: '#000000' },
+  'FIGUREX':           { bg: '#00008b', color: '#ffffff' },
 };
 
 function brandStyle(brand) {
-  return BRAND_STYLES[brand] || { bg: '#888', color: '#fff' };
+  return BRAND_STYLES[brandDisplayName(brand)] || { bg: '#888', color: '#fff' };
 }
 
 // ── State ────────────────────────────────────────────────────────────────────
@@ -663,7 +732,7 @@ async function loadProducts(token) {
     }
     if (!res.ok) throw new Error('fetch failed');
     const data = await res.json();
-    allCards = data.cards || [];
+    allCards = (data.cards || []).map(c => ({ ...c, brand: brandDisplayName(c.brand) }));
 
     document.getElementById('last-update').textContent =
       `最終更新: ${new Date(data.fetchedAt).toLocaleString('ja-JP')}`;
@@ -731,15 +800,40 @@ document.getElementById('reset-btn').addEventListener('click', () => {
   renderFiltered();
 });
 
+// ── Notice Overlay ────────────────────────────────────────────────────────────
+function showNotice(onConfirm) {
+  const overlay = document.getElementById('notice-overlay');
+  overlay.classList.remove('hidden');
+  document.getElementById('notice-confirm-btn').addEventListener('click', () => {
+    overlay.classList.add('hidden');
+    localStorage.setItem('notice_confirmed', '1');
+    onConfirm();
+  }, { once: true });
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 (function init() {
   const token = sessionStorage.getItem('site_token');
-  if (!token) {
-    showLogin();
-    return;
+  const noticed = localStorage.getItem('notice_confirmed');
+
+  if (!noticed) {
+    // 初回訪問: 注意書きを表示し、並行してデータを先読み
+    if (token) {
+      // ログイン済み → アプリ画面をバックグラウンドで準備しつつ注意書きを表示
+      showApp();
+      const loadPromise = loadProducts(token);
+      showNotice(() => { /* データはすでに読み込み中 */ });
+    } else {
+      // 未ログイン → 注意書きを表示してからログイン画面へ
+      showLogin();
+      showNotice(() => { /* ログイン画面がそのまま表示される */ });
+    }
+  } else {
+    // 確認済み → 通常フロー
+    if (!token) { showLogin(); return; }
+    showApp();
+    loadProducts(token);
   }
-  showApp();
-  loadProducts(token);
 })();
 </script>
 </body>
