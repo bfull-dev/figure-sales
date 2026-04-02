@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>フィギュア予約受注サイト</title>
+<style>
+  /* ── Reset & Base ── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Yu Gothic", sans-serif; background: #f5f5f5; color: #222; min-height: 100vh; }
+  a { color: inherit; text-decoration: none; }
+  button { cursor: pointer; font-family: inherit; }
+
+  /* ── Login Screen ── */
+  #login-screen {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; background: #f5f5f5;
+  }
+  .login-card {
+    background: #fff; border-radius: 12px; padding: 48px 40px;
+    box-shadow: 0 4px 24px rgba(0,0,0,.10); width: 360px; text-align: center;
+  }
+  .login-card h1 { font-size: 1.3rem; margin-bottom: 8px; color: #1a1a2e; }
+  .login-card p { font-size: .85rem; color: #666; margin-bottom: 28px; }
+  .login-card input[type="password"] {
+    width: 100%; padding: 12px 16px; font-size: 1rem;
+    border: 1.5px solid #ddd; border-radius: 8px; outline: none;
+    transition: border-color .2s;
+  }
+  .login-card input[type="password"]:focus { border-color: #1a5fa8; }
+  .login-btn {
+    width: 100%; margin-top: 16px; padding: 12px;
+    background: #1a1a2e; color: #fff; border: none;
+    border-radius: 8px; font-size: 1rem; font-weight: 600;
+    transition: background .2s;
+  }
+  .login-btn:hover { background: #333; }
+  .login-error { margin-top: 12px; color: #c0392b; font-size: .85rem; min-height: 20px; }
+
+  /* ── App Shell ── */
+  #app { display: none; flex-direction: column; min-height: 100vh; }
+
+  /* ── Header ── */
+  header {
+    background: #1a1a2e; color: #fff; padding: 14px 24px;
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 8px;
+  }
+  header h1 { font-size: 1.1rem; font-weight: 700; letter-spacing: .04em; }
+  .header-meta { font-size: .78rem; color: #aab; display: flex; gap: 16px; flex-wrap: wrap; }
+
+  /* ── Filter Bar ── */
+  #filter-bar {
+    position: sticky; top: 0; z-index: 100;
+    background: #fff; border-bottom: 1px solid #e0e0e0;
+    padding: 12px 24px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  }
+  .filter-section { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .filter-label { font-size: .75rem; color: #888; white-space: nowrap; }
+
+  /* Brand chips */
+  .brand-chip {
+    padding: 4px 12px; border-radius: 999px; font-size: .78rem; font-weight: 600;
+    border: 2px solid transparent; cursor: pointer; transition: opacity .15s, transform .1s;
+    white-space: nowrap;
+  }
+  .brand-chip.inactive { opacity: .38; }
+  .brand-chip:hover { transform: scale(1.05); }
+
+  /* Dropdowns */
+  .filter-select {
+    padding: 6px 10px; border: 1.5px solid #ddd; border-radius: 6px;
+    font-size: .82rem; background: #fff; outline: none; cursor: pointer;
+  }
+  .filter-select:focus { border-color: #1a5fa8; }
+
+  /* Toggle switch */
+  .toggle-wrap { display: flex; align-items: center; gap: 6px; }
+  .toggle { position: relative; display: inline-block; width: 40px; height: 22px; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider {
+    position: absolute; inset: 0; background: #ccc; border-radius: 22px;
+    transition: background .2s; cursor: pointer;
+  }
+  .toggle-slider::before {
+    content: ''; position: absolute;
+    width: 16px; height: 16px; left: 3px; bottom: 3px;
+    background: #fff; border-radius: 50%; transition: transform .2s;
+  }
+  .toggle input:checked + .toggle-slider { background: #27ae60; }
+  .toggle input:checked + .toggle-slider::before { transform: translateX(18px); }
+
+  /* Count & Reset */
+  .filter-count { font-size: .82rem; color: #555; margin-left: auto; white-space: nowrap; }
+  .reset-btn {
+    padding: 5px 14px; border: 1.5px solid #bbb; border-radius: 6px;
+    background: #fff; font-size: .8rem; color: #555; transition: all .15s;
+  }
+  .reset-btn:hover { background: #f0f0f0; border-color: #999; }
+
+  /* ── Card Grid ── */
+  #card-grid {
+    padding: 24px; display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 20px; flex: 1;
+  }
+
+  /* ── Card ── */
+  .card {
+    background: #fff; border-radius: 10px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.07);
+    overflow: hidden; display: flex; flex-direction: column;
+    transition: box-shadow .2s;
+  }
+  .card:hover { box-shadow: 0 6px 20px rgba(0,0,0,.12); }
+
+  .card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px; border-bottom: 1px solid #f0f0f0;
+  }
+  .brand-badge {
+    display: inline-block; padding: 3px 10px; border-radius: 4px;
+    font-size: .75rem; font-weight: 700; letter-spacing: .05em;
+  }
+  .start-date { font-size: .78rem; color: #888; }
+
+  /* Image area */
+  .card-image-wrap {
+    position: relative; width: 100%; padding-top: 75%; /* 4:3 */
+    background: #eee; overflow: hidden;
+  }
+  .card-image-wrap img {
+    position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+  }
+  .card-image-placeholder {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: #e8e8e8; color: #bbb; font-size: .85rem;
+  }
+  .img-overlay {
+    position: absolute; inset: 0; background: rgba(0,0,0,.45);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: .85rem; font-weight: 600; letter-spacing: .03em;
+    opacity: 0; transition: opacity .2s; pointer-events: none;
+  }
+  .card-image-wrap.clickable { cursor: pointer; }
+  .card-image-wrap.clickable:hover .img-overlay { opacity: 1; }
+
+  /* Body */
+  .card-body { padding: 14px; flex: 1; display: flex; flex-direction: column; gap: 10px; }
+
+  .product-list { display: flex; flex-direction: column; gap: 8px; }
+  .product-item {
+    border-top: 1px solid #f0f0f0; padding-top: 8px; font-size: .82rem; color: #333;
+  }
+  .product-item:first-child { border-top: none; padding-top: 0; }
+  .product-name { font-weight: 600; margin-bottom: 4px; line-height: 1.4; }
+  .product-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; color: #555; }
+  .product-meta span { white-space: nowrap; }
+  .product-note { margin-top: 3px; font-size: .78rem; color: #e67e22; }
+
+  .card-info { font-size: .8rem; color: #666; display: flex; flex-direction: column; gap: 4px; }
+  .card-info span { display: flex; gap: 6px; }
+  .info-label { color: #999; min-width: 72px; }
+
+  /* Description toggle */
+  .desc-btn {
+    padding: 5px 0; background: none; border: none;
+    color: #1a5fa8; font-size: .8rem; text-align: left;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .desc-btn::before { content: '▶'; font-size: .65rem; transition: transform .2s; }
+  .desc-btn.open::before { transform: rotate(90deg); }
+  .desc-content {
+    display: none; font-size: .8rem; color: #444;
+    line-height: 1.7; padding: 8px 10px;
+    background: #fafafa; border-radius: 6px; white-space: pre-wrap;
+  }
+  .desc-content.open { display: block; }
+
+  /* ── No Results ── */
+  #no-results {
+    display: none; text-align: center; padding: 80px 24px;
+    color: #999; font-size: .95rem; grid-column: 1/-1;
+  }
+
+  /* ── Loading ── */
+  #loading {
+    display: none; padding: 24px;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px;
+  }
+  .skeleton-card {
+    background: #fff; border-radius: 10px; overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0,0,0,.07);
+  }
+  .skeleton-img { width: 100%; padding-top: 75%; background: #e8e8e8; }
+  .skeleton-body { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .skeleton-line {
+    height: 12px; background: #e8e8e8; border-radius: 4px;
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  .skeleton-line.short { width: 50%; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  /* ── Footer ── */
+  footer {
+    text-align: center; padding: 20px; font-size: .78rem;
+    color: #aaa; background: #fff; border-top: 1px solid #eee;
+  }
+
+  /* ── Empty state within grid ── */
+  .empty-grid { grid-column: 1/-1; }
+
+  /* ── Responsive ── */
+  @media (max-width: 768px) {
+    #filter-bar { padding: 10px 14px; }
+    #card-grid { padding: 14px; }
+    .login-card { width: 90%; padding: 36px 24px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ████ LOGIN SCREEN ████ -->
+<div id="login-screen">
+  <div class="login-card">
+    <h1>フィギュア予約受注サイト</h1>
+    <p>パスワードを入力してください</p>
+    <input type="password" id="pw-input" placeholder="パスワード" autocomplete="current-password">
+    <button class="login-btn" id="login-btn">ログイン</button>
+    <div class="login-error" id="login-error"></div>
+  </div>
+</div>
+
+<!-- ████ APP ████ -->
+<div id="app">
+  <header>
+    <h1>フィギュア予約受注サイト</h1>
+    <div class="header-meta">
+      <span id="last-update"></span>
+      <span id="header-count"></span>
+    </div>
+  </header>
+
+  <div id="filter-bar">
+    <!-- Brand chips -->
+    <div class="filter-section">
+      <span class="filter-label">ブランド</span>
+      <div id="brand-chips"></div>
+    </div>
+
+    <!-- Start week -->
+    <div class="filter-section">
+      <span class="filter-label">予約開始週</span>
+      <select class="filter-select" id="start-week-select"><option value="">すべて</option></select>
+    </div>
+
+    <!-- End week -->
+    <div class="filter-section">
+      <span class="filter-label">締切週</span>
+      <select class="filter-select" id="end-week-select"><option value="">すべて</option></select>
+    </div>
+
+    <!-- Released toggle -->
+    <div class="filter-section">
+      <span class="filter-label">発売済み</span>
+      <div class="toggle-wrap">
+        <label class="toggle">
+          <input type="checkbox" id="released-toggle">
+          <span class="toggle-slider"></span>
+        </label>
+        <span class="filter-label">表示</span>
+      </div>
+    </div>
+
+    <button class="reset-btn" id="reset-btn">リセット</button>
+    <span class="filter-count" id="filter-count"></span>
+  </div>
+
+  <!-- Loading skeletons -->
+  <div id="loading">
+    <div class="skeleton-card"><div class="skeleton-img"></div><div class="skeleton-body"><div class="skeleton-line"></div><div class="skeleton-line short"></div><div class="skeleton-line"></div></div></div>
+    <div class="skeleton-card"><div class="skeleton-img"></div><div class="skeleton-body"><div class="skeleton-line"></div><div class="skeleton-line short"></div><div class="skeleton-line"></div></div></div>
+    <div class="skeleton-card"><div class="skeleton-img"></div><div class="skeleton-body"><div class="skeleton-line"></div><div class="skeleton-line short"></div><div class="skeleton-line"></div></div></div>
+  </div>
+
+  <div id="card-grid">
+    <div id="no-results" class="empty-grid">条件に一致する商品がありません</div>
+  </div>
+
+  <footer>© 2026 Be-Full Co.,Ltd.</footer>
+</div>
+
+<script>
+'use strict';
+
+// ── Config ──────────────────────────────────────────────────────────────────
+const API_BASE = 'https://your-railway-app.railway.app';
+
+// ── Brand styles ─────────────────────────────────────────────────────────────
+const BRAND_STYLES = {
+  'インサイト':      { bg: '#ee82ee', color: '#000000' },
+  'FOTS':           { bg: '#ff8c00', color: '#ffffff' },
+  "B'full":         { bg: '#ffa500', color: '#000000' },
+  'Premium Insight':{ bg: '#ee82ee', color: '#000000' },
+  'FIGUREX':        { bg: '#00008b', color: '#ffffff' },
+};
+
+function brandStyle(brand) {
+  return BRAND_STYLES[brand] || { bg: '#888', color: '#fff' };
+}
+
+// ── State ────────────────────────────────────────────────────────────────────
+let allCards = [];
+let selectedBrands = new Set();
+let allBrands = [];
+let selectedStartWeek = '';
+let selectedEndWeek = '';
+let showReleased = false;
+
+// ── Date helpers ─────────────────────────────────────────────────────────────
+function toDate(str) {
+  if (!str) return null;
+  return new Date(str + 'T00:00:00');
+}
+
+function startOfWeekMonday(d) {
+  const day = d.getDay(); // 0=Sun
+  const diff = day === 0 ? -6 : 1 - day;
+  const mon = new Date(d);
+  mon.setDate(d.getDate() + diff);
+  mon.setHours(0, 0, 0, 0);
+  return mon;
+}
+
+function formatDate(d) {
+  if (!d) return '';
+  return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function weekKey(d) {
+  const mon = startOfWeekMonday(d);
+  const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+  return `${mon.toISOString().slice(0,10)}_${sun.toISOString().slice(0,10)}`;
+}
+
+function weekLabel(key, count) {
+  const [s, e] = key.split('_');
+  const sd = toDate(s), ed = toDate(e);
+  const label = `${sd.getFullYear()}/${String(sd.getMonth()+1).padStart(2,'0')}/${String(sd.getDate()).padStart(2,'0')}〜${String(ed.getMonth()+1).padStart(2,'0')}/${String(ed.getDate()).padStart(2,'0')}`;
+  return count !== undefined ? `${label}（${count}件）` : label;
+}
+
+function isInWeek(dateStr, weekKeyStr) {
+  const d = toDate(dateStr);
+  if (!d) return false;
+  const [s, e] = weekKeyStr.split('_');
+  const start = toDate(s), end = toDate(e);
+  end.setHours(23,59,59,999);
+  return d >= start && d <= end;
+}
+
+function isReleased(card) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const dates = [card.releaseDate].filter(Boolean).map(toDate).filter(Boolean);
+  return dates.some(d => d <= today);
+}
+
+function formatRelease(dateStr) {
+  if (!dateStr) return '未定';
+  const d = toDate(dateStr);
+  return `${d.getFullYear()}年${d.getMonth()+1}月`;
+}
+
+// ── Image URL ─────────────────────────────────────────────────────────────────
+function getImageUrl(fileKey) {
+  const token = sessionStorage.getItem('site_token');
+  return `${API_BASE}/api/file/${encodeURIComponent(fileKey)}?token=${encodeURIComponent(token)}`;
+}
+
+// ── Filters ──────────────────────────────────────────────────────────────────
+function applyFilters(cards) {
+  return cards.filter(c => {
+    if (selectedBrands.size > 0 && !selectedBrands.has(c.brand)) return false;
+    if (selectedStartWeek && !isInWeek(c.reservationStartDate, selectedStartWeek)) return false;
+    if (selectedEndWeek && !isInWeek(c.reservationEndDate, selectedEndWeek)) return false;
+    if (!showReleased && isReleased(c)) return false;
+    return true;
+  });
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function buildFilterOptions(cards) {
+  // Brands
+  const brandSet = new Set(cards.map(c => c.brand));
+  allBrands = [...brandSet];
+  selectedBrands = new Set(allBrands);
+  const chipsEl = document.getElementById('brand-chips');
+  chipsEl.innerHTML = '';
+  for (const brand of allBrands) {
+    const s = brandStyle(brand);
+    const btn = document.createElement('button');
+    btn.className = 'brand-chip';
+    btn.textContent = brand;
+    btn.style.backgroundColor = s.bg;
+    btn.style.color = s.color;
+    btn.dataset.brand = brand;
+    btn.addEventListener('click', () => toggleBrand(brand));
+    chipsEl.appendChild(btn);
+  }
+
+  // Week dropdowns
+  buildWeekDropdown('start-week-select', cards, 'reservationStartDate');
+  buildWeekDropdown('end-week-select', cards, 'reservationEndDate');
+}
+
+function buildWeekDropdown(selectId, cards, field) {
+  const countMap = new Map();
+  for (const c of cards) {
+    const d = toDate(c[field]);
+    if (!d) continue;
+    const key = weekKey(d);
+    countMap.set(key, (countMap.get(key) || 0) + 1);
+  }
+  const sorted = [...countMap.entries()].sort((a,b) => a[0].localeCompare(b[0]));
+  const sel = document.getElementById(selectId);
+  sel.innerHTML = '<option value="">すべて</option>';
+  for (const [key, cnt] of sorted) {
+    const opt = document.createElement('option');
+    opt.value = key;
+    opt.textContent = weekLabel(key, cnt);
+    sel.appendChild(opt);
+  }
+}
+
+function toggleBrand(brand) {
+  if (selectedBrands.has(brand)) {
+    selectedBrands.delete(brand);
+  } else {
+    selectedBrands.add(brand);
+  }
+  updateChips();
+  renderFiltered();
+}
+
+function updateChips() {
+  document.querySelectorAll('.brand-chip').forEach(btn => {
+    btn.classList.toggle('inactive', !selectedBrands.has(btn.dataset.brand));
+  });
+}
+
+function renderFiltered() {
+  const filtered = applyFilters(allCards);
+  renderCards(filtered);
+  document.getElementById('filter-count').textContent =
+    `表示: ${filtered.length}件 / 全${allCards.length}件`;
+}
+
+function renderCards(cards) {
+  const grid = document.getElementById('card-grid');
+  const noResults = document.getElementById('no-results');
+
+  // Remove existing cards (keep no-results)
+  grid.querySelectorAll('.card').forEach(el => el.remove());
+
+  if (cards.length === 0) {
+    noResults.style.display = 'block';
+    return;
+  }
+  noResults.style.display = 'none';
+
+  for (const card of cards) {
+    grid.appendChild(buildCardEl(card));
+  }
+}
+
+function buildCardEl(card) {
+  const s = brandStyle(card.brand);
+  const el = document.createElement('div');
+  el.className = 'card';
+
+  // Header
+  const header = document.createElement('div');
+  header.className = 'card-header';
+  const badge = document.createElement('span');
+  badge.className = 'brand-badge';
+  badge.textContent = card.brand;
+  badge.style.backgroundColor = s.bg;
+  badge.style.color = s.color;
+  const startDate = document.createElement('span');
+  startDate.className = 'start-date';
+  startDate.textContent = card.reservationStartDate
+    ? `予約開始: ${formatDate(toDate(card.reservationStartDate))}` : '';
+  header.appendChild(badge);
+  header.appendChild(startDate);
+  el.appendChild(header);
+
+  // Image
+  const imgWrap = document.createElement('div');
+  imgWrap.className = 'card-image-wrap' + (card.boxOrderUrl ? ' clickable' : '');
+  if (card.imageFileKey) {
+    const img = document.createElement('img');
+    img.src = getImageUrl(card.imageFileKey);
+    img.alt = card.characterName || card.title;
+    img.loading = 'lazy';
+    imgWrap.appendChild(img);
+  } else {
+    const ph = document.createElement('div');
+    ph.className = 'card-image-placeholder';
+    ph.textContent = card.brand;
+    imgWrap.appendChild(ph);
+  }
+  if (card.boxOrderUrl) {
+    const overlay = document.createElement('div');
+    overlay.className = 'img-overlay';
+    overlay.textContent = '📥 注文書・資料をDL';
+    imgWrap.appendChild(overlay);
+    imgWrap.addEventListener('click', () => window.open(card.boxOrderUrl, '_blank', 'noopener'));
+  }
+  el.appendChild(imgWrap);
+
+  // Body
+  const body = document.createElement('div');
+  body.className = 'card-body';
+
+  // Title / character
+  if (card.characterName || card.title) {
+    const titleEl = document.createElement('div');
+    titleEl.style.cssText = 'font-weight:600;font-size:.9rem;line-height:1.4;';
+    titleEl.textContent = card.characterName || card.title;
+    body.appendChild(titleEl);
+  }
+
+  // Product list
+  if (card.products && card.products.length > 0) {
+    const list = document.createElement('div');
+    list.className = 'product-list';
+    card.products.forEach((p, i) => {
+      const item = document.createElement('div');
+      item.className = 'product-item';
+
+      const name = document.createElement('div');
+      name.className = 'product-name';
+      name.textContent = `${i+1}. ${p.productName}`;
+      item.appendChild(name);
+
+      const meta = document.createElement('div');
+      meta.className = 'product-meta';
+
+      const addMeta = (label, val) => {
+        if (!val && val !== 0) return;
+        const span = document.createElement('span');
+        span.textContent = `${label}: ${val}`;
+        meta.appendChild(span);
+      };
+
+      addMeta('スケール', p.scale);
+      addMeta('全高', p.height);
+      if (p.priceTax) {
+        const span = document.createElement('span');
+        span.textContent = `¥${p.priceTax.toLocaleString()}（税抜 ¥${p.priceNoTax.toLocaleString()}）`;
+        meta.appendChild(span);
+      }
+      addMeta('JAN', p.janCode);
+      addMeta('流通', p.distribution);
+      item.appendChild(meta);
+
+      if (p.note) {
+        const note = document.createElement('div');
+        note.className = 'product-note';
+        note.textContent = `※ ${p.note}`;
+        item.appendChild(note);
+      }
+
+      list.appendChild(item);
+    });
+    body.appendChild(list);
+  }
+
+  // Card info
+  const info = document.createElement('div');
+  info.className = 'card-info';
+
+  const addInfo = (label, val) => {
+    if (!val) return;
+    const row = document.createElement('span');
+    row.innerHTML = `<span class="info-label">${label}</span>${val}`;
+    info.appendChild(row);
+  };
+
+  addInfo('締切日', card.reservationEndDate ? formatDate(toDate(card.reservationEndDate)) : null);
+  addInfo('発売予定', formatRelease(card.releaseDate));
+  addInfo('材料', card.material);
+  addInfo('生産国', card.productionCountry);
+  if (card.copyright) addInfo('©', card.copyright);
+  body.appendChild(info);
+
+  // Description
+  if (card.description) {
+    const descBtn = document.createElement('button');
+    descBtn.className = 'desc-btn';
+    descBtn.textContent = '詳細を見る';
+    const descContent = document.createElement('div');
+    descContent.className = 'desc-content';
+    descContent.textContent = card.description;
+    descBtn.addEventListener('click', () => {
+      descBtn.classList.toggle('open');
+      descContent.classList.toggle('open');
+      descBtn.textContent = descBtn.classList.contains('open') ? '閉じる' : '詳細を見る';
+    });
+    body.appendChild(descBtn);
+    body.appendChild(descContent);
+  }
+
+  el.appendChild(body);
+  return el;
+}
+
+// ── Loading ───────────────────────────────────────────────────────────────────
+function showLoading() {
+  document.getElementById('loading').style.display = 'grid';
+  document.getElementById('card-grid').style.display = 'none';
+}
+function hideLoading() {
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('card-grid').style.display = 'grid';
+}
+
+// ── Login ─────────────────────────────────────────────────────────────────────
+async function login(password) {
+  const errEl = document.getElementById('login-error');
+  errEl.textContent = '';
+  try {
+    const res = await fetch(`${API_BASE}/api/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+    if (res.ok) {
+      const { token } = await res.json();
+      sessionStorage.setItem('site_token', token);
+      showApp();
+      await loadProducts(token);
+    } else {
+      errEl.textContent = 'パスワードが違います';
+    }
+  } catch {
+    errEl.textContent = 'サーバーに接続できません';
+  }
+}
+
+// ── Products ──────────────────────────────────────────────────────────────────
+async function loadProducts(token) {
+  showLoading();
+  try {
+    const res = await fetch(`${API_BASE}/api/products`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (res.status === 401) {
+      sessionStorage.removeItem('site_token');
+      showLogin();
+      return;
+    }
+    if (!res.ok) throw new Error('fetch failed');
+    const data = await res.json();
+    allCards = data.cards || [];
+
+    document.getElementById('last-update').textContent =
+      `最終更新: ${new Date(data.fetchedAt).toLocaleString('ja-JP')}`;
+    document.getElementById('header-count').textContent =
+      `全${allCards.length}件`;
+
+    buildFilterOptions(allCards);
+    renderFiltered();
+    hideLoading();
+  } catch {
+    hideLoading();
+    document.getElementById('card-grid').style.display = 'grid';
+    const grid = document.getElementById('card-grid');
+    grid.querySelectorAll('.card').forEach(el => el.remove());
+    const msg = document.createElement('div');
+    msg.style.cssText = 'grid-column:1/-1;text-align:center;padding:60px;color:#999;';
+    msg.textContent = 'データを取得できませんでした。再読み込みしてください。';
+    grid.appendChild(msg);
+  }
+}
+
+// ── Screen switch ─────────────────────────────────────────────────────────────
+function showLogin() {
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('app').style.display = 'none';
+}
+function showApp() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+}
+
+// ── Event listeners ───────────────────────────────────────────────────────────
+document.getElementById('login-btn').addEventListener('click', () => {
+  const pw = document.getElementById('pw-input').value;
+  if (pw) login(pw);
+});
+document.getElementById('pw-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    const pw = e.target.value;
+    if (pw) login(pw);
+  }
+});
+
+document.getElementById('start-week-select').addEventListener('change', e => {
+  selectedStartWeek = e.target.value;
+  renderFiltered();
+});
+document.getElementById('end-week-select').addEventListener('change', e => {
+  selectedEndWeek = e.target.value;
+  renderFiltered();
+});
+document.getElementById('released-toggle').addEventListener('change', e => {
+  showReleased = e.target.checked;
+  renderFiltered();
+});
+document.getElementById('reset-btn').addEventListener('click', () => {
+  selectedBrands = new Set(allBrands);
+  selectedStartWeek = '';
+  selectedEndWeek = '';
+  showReleased = false;
+  document.getElementById('start-week-select').value = '';
+  document.getElementById('end-week-select').value = '';
+  document.getElementById('released-toggle').checked = false;
+  updateChips();
+  renderFiltered();
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+(function init() {
+  const token = sessionStorage.getItem('site_token');
+  if (!token) {
+    showLogin();
+    return;
+  }
+  showApp();
+  loadProducts(token);
+})();
+</script>
+</body>
+</html>
