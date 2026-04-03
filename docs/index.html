@@ -139,6 +139,9 @@
     background: #888; color: #fff; font-size: .72rem; font-weight: 700;
     padding: 3px 8px; border-radius: 4px; white-space: nowrap;
   }
+  .end-date.new-item {
+    color: #c0392b; font-weight: 700; font-size: .82rem; letter-spacing: .12em;
+  }
 
   /* Image area */
   .card-image-wrap {
@@ -272,15 +275,24 @@
     content: '◯'; position: absolute; left: 0; color: #1a5fa8; font-size: .8rem; top: .1em;
   }
   .notice-body li strong { color: #c0392b; }
+  .notice-btn-row {
+    display: flex; flex-direction: column; gap: 10px;
+    padding: 0 24px 24px;
+  }
   .notice-confirm-btn {
-    display: block; width: calc(100% - 48px);
-    margin: 0 24px 24px; padding: 14px;
+    width: 100%; margin: 0; padding: 14px;
     background: #FFA132; color: #fff;
     border: none; border-radius: 8px;
     font-size: 1rem; font-weight: 700; cursor: pointer;
     transition: background .2s; letter-spacing: .05em;
   }
   .notice-confirm-btn:hover { background: #e08000; }
+  .notice-adult-btn {
+    width: 100%; padding: 14px;
+    background: #fff; color: #555; border: 1.5px solid #ccc; border-radius: 8px;
+    font-size: .95rem; font-weight: 600; cursor: pointer; transition: all .2s;
+  }
+  .notice-adult-btn:hover { background: #f5f5f5; border-color: #999; }
 
   /* ── Responsive ── */
   @media (max-width: 768px) {
@@ -306,7 +318,10 @@
         <li>画像データ読み込みに少々お時間がかかります。</li>
       </ul>
     </div>
-    <button class="notice-confirm-btn" id="notice-confirm-btn">確認しました</button>
+    <div class="notice-btn-row">
+      <button class="notice-confirm-btn" id="notice-all-btn">全商品を表示する</button>
+      <button class="notice-adult-btn" id="notice-adult-btn">成人向けを含まない</button>
+    </div>
   </div>
 </div>
 
@@ -486,6 +501,15 @@ function formatRelease(dateStr) {
   return `${d.getFullYear()}年${d.getMonth()+1}月`;
 }
 
+function isNewItem(dateStr) {
+  if (!dateStr) return false;
+  const d = toDate(dateStr);
+  if (!d) return false;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const diffDays = Math.floor((today - d) / 86400000);
+  return diffDays >= 0 && diffDays <= 7;
+}
+
 function deadlineStatus(dateStr) {
   if (!dateStr) return null;
   const d = toDate(dateStr);
@@ -647,7 +671,14 @@ function buildCardEl(card) {
   if (isReleased(card)) {
     cardTopStatus = { label: 'お問合せください。', state: 'released' };
   } else {
-    cardTopStatus = deadlineStatus(card.reservationEndDate);
+    const ds = deadlineStatus(card.reservationEndDate);
+    if (ds && ds.state === 'enquiry') {
+      cardTopStatus = ds;
+    } else if (isNewItem(card.reservationStartDate)) {
+      cardTopStatus = { label: 'NEW', state: 'new-item' };
+    } else {
+      cardTopStatus = ds;
+    }
   }
   endDateEl.className = 'end-date' + (cardTopStatus ? ` ${cardTopStatus.state}` : '');
   endDateEl.textContent = cardTopStatus ? cardTopStatus.label : '';
@@ -934,9 +965,22 @@ document.getElementById('search-input').addEventListener('input', e => {
 function showNotice() {
   const overlay = document.getElementById('notice-overlay');
   overlay.classList.remove('hidden');
-  document.getElementById('notice-confirm-btn').addEventListener('click', () => {
+
+  // 全商品を表示する（フィルター変更なし）
+  document.getElementById('notice-all-btn').addEventListener('click', () => {
     overlay.classList.add('hidden');
     localStorage.setItem('notice_confirmed', '1');
+  }, { once: true });
+
+  // 成人向けを含まない（インサイトをフィルタ除外）
+  document.getElementById('notice-adult-btn').addEventListener('click', () => {
+    overlay.classList.add('hidden');
+    localStorage.setItem('notice_confirmed', '1');
+    if (selectedBrands.has('インサイト')) {
+      selectedBrands.delete('インサイト');
+      updateChips();
+      renderFiltered();
+    }
   }, { once: true });
 }
 
