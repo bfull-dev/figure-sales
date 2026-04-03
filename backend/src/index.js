@@ -166,6 +166,8 @@ function buildCards(records167, map629) {
         imageFileKey,
         description,
         products,
+        noteEnabled: Array.isArray(rec['補足文']?.value) && rec['補足文'].value.includes('ON'),
+        noteText: rec['カード用補足文']?.value || null,
       });
     }
   }
@@ -198,6 +200,7 @@ app.get('/api/products', requireAuth, async (_req, res) => {
       '企画ID', '非表示', '予約開始日', '予約締切日', '発売月',
       'タイトル', 'キャラクター名', 'コピーライト_0', '材料選択', '生産国',
       'box_order_url_IN', 'box_order_url_FOTS', '売上見込_0',
+      '補足文', 'カード用補足文',
     ];
     const fields629 = [
       '企画ID', '貼り付け用画像_インサイト', '貼り付け用画像_FOTS',

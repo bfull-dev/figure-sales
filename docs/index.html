@@ -142,6 +142,11 @@
   .end-date.new-item {
     color: #c0392b; font-weight: 700; font-size: .82rem; letter-spacing: .12em;
   }
+  .card-note {
+    border: 2px solid #FFA132; border-radius: 6px; padding: 8px 12px;
+    font-weight: 700; font-size: .82rem; color: #333; margin-top: 4px;
+    line-height: 1.5;
+  }
 
   /* Image area */
   .card-image-wrap {
@@ -785,6 +790,13 @@ function buildCardEl(card) {
   addInfo('生産国', card.productionCountry);
   if (card.copyright) addInfo('©', card.copyright);
   body.appendChild(info);
+
+  if (card.noteEnabled && card.noteText) {
+    const noteEl = document.createElement('div');
+    noteEl.className = 'card-note';
+    noteEl.textContent = card.noteText;
+    body.appendChild(noteEl);
+  }
 
   // Description + Download button row
   const descDlRow = document.createElement('div');
