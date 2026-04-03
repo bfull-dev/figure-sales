@@ -98,6 +98,13 @@
 
   /* Count & Reset */
   .filter-count { font-size: .82rem; color: #555; margin-left: auto; white-space: nowrap; }
+  .this-week-btn {
+    padding: 5px 14px; border: 1.5px solid #FFA132; border-radius: 6px;
+    background: #fff; font-size: .8rem; color: #FFA132; font-weight: 700;
+    cursor: pointer; transition: all .15s; white-space: nowrap;
+  }
+  .this-week-btn:hover { background: #FFA132; color: #fff; }
+  .this-week-btn.active { background: #FFA132; color: #fff; }
   .reset-btn {
     padding: 5px 14px; border: 1.5px solid #bbb; border-radius: 6px;
     background: #fff; font-size: .8rem; color: #555; transition: all .15s;
@@ -376,6 +383,9 @@
       <span class="filter-label">締切週</span>
       <select class="filter-select" id="end-week-select"><option value="">すべて</option></select>
     </div>
+
+    <!-- This week deadline button -->
+    <button class="this-week-btn" id="this-week-btn">今週の予約締切商品</button>
 
     <!-- Released toggle -->
     <div class="filter-section">
@@ -948,10 +958,29 @@ document.getElementById('end-week-select').addEventListener('change', e => {
     selectedStartWeek = '';
     document.getElementById('start-week-select').value = '';
   }
+  // 手動でドロップダウンを変更した場合はボタンのactiveを解除
+  document.getElementById('this-week-btn').classList.remove('active');
   renderFiltered();
 });
 document.getElementById('released-toggle').addEventListener('change', e => {
   showReleased = e.target.checked;
+  renderFiltered();
+});
+document.getElementById('this-week-btn').addEventListener('click', () => {
+  const btn = document.getElementById('this-week-btn');
+  const thisWeekKey = weekKey(new Date());
+  if (btn.classList.contains('active')) {
+    // 既にアクティブなら解除
+    btn.classList.remove('active');
+    selectedEndWeek = '';
+    document.getElementById('end-week-select').value = '';
+  } else {
+    btn.classList.add('active');
+    selectedStartWeek = '';
+    selectedEndWeek = thisWeekKey;
+    document.getElementById('start-week-select').value = '';
+    document.getElementById('end-week-select').value = thisWeekKey;
+  }
   renderFiltered();
 });
 document.getElementById('reset-btn').addEventListener('click', () => {
@@ -964,6 +993,7 @@ document.getElementById('reset-btn').addEventListener('click', () => {
   document.getElementById('end-week-select').value = '';
   document.getElementById('released-toggle').checked = false;
   document.getElementById('search-input').value = '';
+  document.getElementById('this-week-btn').classList.remove('active');
   updateChips();
   renderFiltered();
 });
