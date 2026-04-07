@@ -538,11 +538,6 @@ function deadlineStatus(dateStr) {
   return { label: `締切: ${formatDate(d)}`, state: 'normal' };
 }
 
-// ── Image URL ─────────────────────────────────────────────────────────────────
-function getImageUrl(fileKey) {
-  const token = sessionStorage.getItem('site_token');
-  return `${API_BASE}/api/file/${encodeURIComponent(fileKey)}?token=${encodeURIComponent(token)}`;
-}
 
 // ── Filters ──────────────────────────────────────────────────────────────────
 function applyFilters(cards) {
@@ -704,9 +699,9 @@ function buildCardEl(card) {
   // Image
   const imgWrap = document.createElement('div');
   imgWrap.className = 'card-image-wrap' + (card.boxOrderUrl ? ' clickable' : '');
-  if (card.imageFileKey) {
+  if (card.imageUrl) {
     const img = document.createElement('img');
-    img.src = getImageUrl(card.imageFileKey);
+    img.src = card.imageVersion ? `${card.imageUrl}?v=${card.imageVersion}` : card.imageUrl;
     img.alt = card.characterName || card.title;
     img.loading = 'lazy';
     imgWrap.appendChild(img);

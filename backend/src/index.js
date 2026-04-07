@@ -4,15 +4,45 @@ const express = require('express');
 const cors = require('cors');
 const crypto = require('crypto');
 const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
+const { S3Client, GetObjectCommand, PutObjectCommand,
+        CopyObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
+const sharp = require('sharp');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 const KINTONE_DOMAIN = process.env.KINTONE_DOMAIN;
-const API_TOKEN_167 = process.env.KINTONE_API_TOKEN_167;
-const API_TOKEN_629 = process.env.KINTONE_API_TOKEN_629;
+const API_TOKEN_167  = process.env.KINTONE_API_TOKEN_167;
+const API_TOKEN_629  = process.env.KINTONE_API_TOKEN_629;
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:5500';
-const SITE_PASSWORD = process.env.SITE_PASSWORD;
+const SITE_PASSWORD   = process.env.SITE_PASSWORD;
+
+// ── R2 / Cloudflare config ────────────────────────────────────────────────────
+const R2_ACCOUNT_ID        = process.env.R2_ACCOUNT_ID;
+const R2_ACCESS_KEY_ID     = process.env.R2_ACCESS_KEY_ID;
+const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY;
+const R2_BUCKET_NAME       = process.env.R2_BUCKET_NAME;
+const R2_PUBLIC_BASE_URL   = (process.env.R2_PUBLIC_BASE_URL || '').replace(/\/$/, '');
+const CF_ZONE_ID           = process.env.CLOUDFLARE_ZONE_ID;
+const CF_API_TOKEN         = process.env.CLOUDFLARE_API_TOKEN;
+const ADMIN_SECRET         = process.env.ADMIN_SECRET;
+const CARD_IMAGE_WIDTH     = Number(process.env.CARD_IMAGE_WIDTH)  || 700;
+const CARD_IMAGE_QUALITY   = Number(process.env.CARD_IMAGE_QUALITY) || 75;
+
+const s3 = new S3Client({
+  region: 'auto',
+  endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+  credentials: { accessKeyId: R2_ACCESS_KEY_ID, secretAccessKey: R2_SECRET_ACCESS_KEY },
+});
+
+function brandToSlug(brand) {
+  if (brand === 'FOTS') return 'fots';
+  if (brand === 'インサイト') return 'insight';
+  return brand.toLowerCase().replace(/[^\w-]/g, '') || 'unknown';
+}
+function cardKey(kikakuId, brand) {
+  return `${kikakuId}-${brandToSlug(brand)}`;
+}
 
 // Valid tokens (server-side Set, reset on restart)
 const validTokens = new Set();
@@ -20,6 +50,116 @@ const validTokens = new Set();
 // ── Products cache ──────────────────────────────────────────────────────────
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5分
 let productsCache = { data: null, fetchedAt: null };
+
+// ── R2 versions cache ─────────────────────────────────────────────────────────
+// Shape: Map<string, string>  e.g. "KK-001-fots" → "20260407-1530"
+let versionsCache = new Map();
+
+async function loadVersionsFromR2() {
+  try {
+    const res = await s3.send(new GetObjectCommand({ Bucket: R2_BUCKET_NAME, Key: 'versions.json' }));
+    const text = await res.Body.transformToString();
+    versionsCache = new Map(Object.entries(JSON.parse(text)));
+    console.log(`[r2] versions loaded: ${versionsCache.size} entries`);
+  } catch (err) {
+    if (err.name === 'NoSuchKey') {
+      console.log('[r2] versions.json not found — starting empty');
+      versionsCache = new Map();
+    } else {
+      console.error('[r2] failed to load versions.json:', err.message);
+    }
+  }
+}
+
+async function saveVersionsToR2() {
+  await s3.send(new PutObjectCommand({
+    Bucket: R2_BUCKET_NAME,
+    Key: 'versions.json',
+    Body: JSON.stringify(Object.fromEntries(versionsCache)),
+    ContentType: 'application/json',
+  }));
+}
+
+function makeImageVersion() {
+  const now = new Date();
+  const p = n => String(n).padStart(2, '0');
+  return `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}`;
+}
+
+// ── R2 image lifecycle ────────────────────────────────────────────────────────
+
+async function downloadKintoneFile(fileKey) {
+  const url = `https://${KINTONE_DOMAIN}/k/v1/file.json?fileKey=${encodeURIComponent(fileKey)}`;
+  const res = await fetch(url, { headers: { 'X-Cybozu-API-Token': API_TOKEN_629 } });
+  if (!res.ok) throw new Error(`Kintone file download failed: ${res.status}`);
+  return Buffer.from(await res.arrayBuffer());
+}
+
+async function processAndUploadImage(fileKey, kikakuId, brand) {
+  const rawBuffer = await downloadKintoneFile(fileKey);
+  const jpegBuffer = await sharp(rawBuffer)
+    .resize({ width: CARD_IMAGE_WIDTH, withoutEnlargement: true })
+    .jpeg({ quality: CARD_IMAGE_QUALITY })
+    .toBuffer();
+  const key = cardKey(kikakuId, brand);
+  await s3.send(new PutObjectCommand({
+    Bucket: R2_BUCKET_NAME,
+    Key: `products/${key}/card.jpg`,
+    Body: jpegBuffer,
+    ContentType: 'image/jpeg',
+  }));
+  const version = makeImageVersion();
+  versionsCache.set(key, version);
+  await saveVersionsToR2();
+  return version;
+}
+
+async function archiveImage(kikakuId, brand) {
+  const key = cardKey(kikakuId, brand);
+  const src = `products/${key}/card.jpg`;
+  const dst = `archive/${key}/card.jpg`;
+  await s3.send(new CopyObjectCommand({
+    Bucket: R2_BUCKET_NAME,
+    CopySource: `${R2_BUCKET_NAME}/${src}`,
+    Key: dst,
+  }));
+  await s3.send(new DeleteObjectCommand({ Bucket: R2_BUCKET_NAME, Key: src }));
+  versionsCache.delete(key);
+  await saveVersionsToR2();
+  await purgeCdnUrl(`${R2_PUBLIC_BASE_URL}/${src}`);
+}
+
+async function restoreImage(kikakuId, brand) {
+  const key = cardKey(kikakuId, brand);
+  const src = `archive/${key}/card.jpg`;
+  const dst = `products/${key}/card.jpg`;
+  await s3.send(new CopyObjectCommand({
+    Bucket: R2_BUCKET_NAME,
+    CopySource: `${R2_BUCKET_NAME}/${src}`,
+    Key: dst,
+  }));
+  await s3.send(new DeleteObjectCommand({ Bucket: R2_BUCKET_NAME, Key: src }));
+  const version = makeImageVersion();
+  versionsCache.set(key, version);
+  await saveVersionsToR2();
+  await purgeCdnUrl(`${R2_PUBLIC_BASE_URL}/${dst}`);
+}
+
+async function purgeCdnUrl(url) {
+  if (!CF_ZONE_ID || !CF_API_TOKEN) return;
+  try {
+    await fetch(`https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/purge_cache`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${CF_API_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ files: [url] }),
+    });
+  } catch (err) {
+    console.error('[cdn] purge failed:', err.message);
+  }
+}
 
 // ── Middleware ──────────────────────────────────────────────────────────────
 
@@ -31,10 +171,9 @@ app.use(cors({
 
 app.use(express.json());
 
-// ── Auth helper ─────────────────────────────────────────────────────────────
+// ── Auth helpers ─────────────────────────────────────────────────────────────
 
 function requireAuth(req, res, next) {
-  // Support both Bearer header and ?token= query param (for <img> src usage)
   const authHeader = req.headers['authorization'];
   let token = null;
   if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -42,9 +181,15 @@ function requireAuth(req, res, next) {
   } else if (req.query.token) {
     token = req.query.token;
   }
-
   if (!token || !validTokens.has(token)) {
     return res.status(401).json({ error: 'Unauthorized', code: 'INVALID_TOKEN' });
+  }
+  next();
+}
+
+function requireAdmin(req, res, next) {
+  if (req.headers['x-admin-secret'] !== ADMIN_SECRET) {
+    return res.status(403).json({ error: 'Forbidden', code: 'INVALID_ADMIN_SECRET' });
   }
   next();
 }
@@ -119,11 +264,17 @@ function buildCards(records167, map629) {
     const reservationEndDate = rec['予約締切日']?.value || null;
 
     for (const [brand, rows] of brandMap) {
-      // Pick image fileKey
-      let imageFileKey = null;
+      // Pick image URL from R2 versions cache
+      let imageUrl = null;
+      let imageVersion = null;
       const imgField = BRAND_IMAGE_KEY[brand];
       if (imgField && rec629 && rec629[imgField]?.value?.length > 0) {
-        imageFileKey = rec629[imgField].value[0].fileKey;
+        const key = cardKey(kikakuId, brand);
+        const version = versionsCache.get(key);
+        if (version) {
+          imageUrl = `${R2_PUBLIC_BASE_URL}/products/${key}/card.jpg`;
+          imageVersion = version;
+        }
       }
 
       // Pick BOX URL
@@ -163,7 +314,8 @@ function buildCards(records167, map629) {
         reservationEndDate,
         releaseDate,
         boxOrderUrl,
-        imageFileKey,
+        imageUrl,
+        imageVersion,
         description,
         products,
         noteEnabled: Array.isArray(rec['補足文']?.value) && rec['補足文'].value.includes('ON'),
@@ -188,7 +340,7 @@ app.post('/api/login', (req, res) => {
   if (!password || password !== SITE_PASSWORD) {
     return res.status(401).json({ error: 'Unauthorized', code: 'WRONG_PASSWORD' });
   }
-  const token = crypto.randomBytes(16).toString('hex'); // 32 chars
+  const token = crypto.randomBytes(16).toString('hex');
   validTokens.add(token);
   res.json({ token });
 });
@@ -218,6 +370,7 @@ app.get('/api/products', requireAuth, async (_req, res) => {
     }
 
     console.log('[cache] MISS — fetching from Kintone');
+    await loadVersionsFromR2();
     const [records167, records629] = await Promise.all([
       fetchAllRecords(167, API_TOKEN_167,
         'サイト表示 in ("ON") order by 予約開始日 desc', fields167),
@@ -252,37 +405,76 @@ app.get('/api/products', requireAuth, async (_req, res) => {
   }
 });
 
-// File proxy
-const FILE_KEY_RE = /^[a-zA-Z0-9\-_.]+$/;
-
-app.get('/api/file/:fileKey', requireAuth, async (req, res) => {
-  const { fileKey } = req.params;
-  if (!FILE_KEY_RE.test(fileKey)) {
-    return res.status(404).json({ error: 'Not found', code: 'INVALID_FILE_KEY' });
-  }
-
+// ── Admin: Full sync ──────────────────────────────────────────────────────────
+app.post('/api/admin/sync', requireAdmin, async (_req, res) => {
   try {
-    const url = `https://${KINTONE_DOMAIN}/k/v1/file.json?fileKey=${encodeURIComponent(fileKey)}`;
-    const kRes = await fetch(url, {
-      headers: { 'X-Cybozu-API-Token': API_TOKEN_629 },
-    });
+    const [records167, records629] = await Promise.all([
+      fetchAllRecords(167, API_TOKEN_167, 'サイト表示 in ("ON") order by $id asc',
+        ['企画ID', '非表示', 'サイト表示']),
+      fetchAllRecords(629, API_TOKEN_629, 'order by $id asc',
+        ['企画ID', '貼り付け用画像_インサイト', '貼り付け用画像_FOTS']),
+    ]);
+    const map629 = new Map(records629
+      .filter(r => r['企画ID']?.value)
+      .map(r => [r['企画ID'].value, r]));
 
-    if (!kRes.ok) {
-      return res.status(404).json({ error: 'File not found', code: 'FILE_NOT_FOUND' });
+    const results = [];
+    for (const rec of records167) {
+      const kikakuId = rec['企画ID'].value;
+      const rec629 = map629.get(kikakuId);
+      if (!rec629) continue;
+      for (const [brand, imgField] of Object.entries(BRAND_IMAGE_KEY)) {
+        const files = rec629[imgField]?.value;
+        if (!files?.length) continue;
+        const key = cardKey(kikakuId, brand);
+        if (versionsCache.has(key)) {
+          results.push({ key, status: 'skipped' });
+          continue;
+        }
+        try {
+          await processAndUploadImage(files[0].fileKey, kikakuId, brand);
+          results.push({ key, status: 'uploaded' });
+        } catch (err) {
+          console.error(`[sync] error for ${key}:`, err.message);
+          results.push({ key, status: 'error', message: err.message });
+        }
+      }
     }
-
-    const contentType = kRes.headers.get('content-type') || 'application/octet-stream';
-    res.set('Content-Type', contentType);
-    res.set('Cache-Control', 'public, max-age=3600');
-    kRes.body.pipe(res);
+    productsCache = { data: null, fetchedAt: null };
+    res.json({ synced: results.length, results });
   } catch (err) {
-    console.error('Error fetching file:', err);
-    res.status(503).json({ error: 'ファイルを取得できませんでした', code: 'FILE_ERROR' });
+    console.error('[sync] error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Admin: Archive ────────────────────────────────────────────────────────────
+app.post('/api/admin/archive/:kikakuId/:brand', requireAdmin, async (req, res) => {
+  try {
+    await archiveImage(req.params.kikakuId, req.params.brand);
+    productsCache = { data: null, fetchedAt: null };
+    res.json({ status: 'archived', key: cardKey(req.params.kikakuId, req.params.brand) });
+  } catch (err) {
+    console.error('[archive] error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Admin: Restore ────────────────────────────────────────────────────────────
+app.post('/api/admin/restore/:kikakuId/:brand', requireAdmin, async (req, res) => {
+  try {
+    await restoreImage(req.params.kikakuId, req.params.brand);
+    productsCache = { data: null, fetchedAt: null };
+    res.json({ status: 'restored', key: cardKey(req.params.kikakuId, req.params.brand) });
+  } catch (err) {
+    console.error('[restore] error:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
 // ── Start ────────────────────────────────────────────────────────────────────
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
+  await loadVersionsFromR2();
 });
