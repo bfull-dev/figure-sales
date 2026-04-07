@@ -5,7 +5,7 @@ const cors = require('cors');
 const crypto = require('crypto');
 const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
 const { S3Client, GetObjectCommand, PutObjectCommand,
-        CopyObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
+        CopyObjectCommand, DeleteObjectCommand, HeadObjectCommand } = require('@aws-sdk/client-s3');
 const sharp = require('sharp');
 
 const app = express();
@@ -26,8 +26,9 @@ const R2_PUBLIC_BASE_URL   = (process.env.R2_PUBLIC_BASE_URL || '').replace(/\/$
 const CF_ZONE_ID           = process.env.CLOUDFLARE_ZONE_ID;
 const CF_API_TOKEN         = process.env.CLOUDFLARE_API_TOKEN;
 const ADMIN_SECRET         = process.env.ADMIN_SECRET;
-const CARD_IMAGE_WIDTH     = Number(process.env.CARD_IMAGE_WIDTH)  || 700;
-const CARD_IMAGE_QUALITY   = Number(process.env.CARD_IMAGE_QUALITY) || 75;
+const CARD_IMAGE_WIDTH       = Number(process.env.CARD_IMAGE_WIDTH)  || 700;
+const CARD_IMAGE_QUALITY     = Number(process.env.CARD_IMAGE_QUALITY) || 75;
+const WEBHOOK_167_SECRET     = process.env.WEBHOOK_167_SECRET;
 
 const s3 = new S3Client({
   region: 'auto',
@@ -143,6 +144,18 @@ async function restoreImage(kikakuId, brand) {
   versionsCache.set(key, version);
   await saveVersionsToR2();
   await purgeCdnUrl(`${R2_PUBLIC_BASE_URL}/${dst}`);
+}
+
+async function archiveExists(kikakuId, brand) {
+  try {
+    await s3.send(new HeadObjectCommand({
+      Bucket: R2_BUCKET_NAME,
+      Key: `archive/${cardKey(kikakuId, brand)}/card.jpg`,
+    }));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function purgeCdnUrl(url) {
@@ -469,6 +482,80 @@ app.post('/api/admin/restore/:kikakuId/:brand', requireAdmin, async (req, res) =
   } catch (err) {
     console.error('[restore] error:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Webhook: App 167 サイト表示 変更 ─────────────────────────────────────────
+app.post('/webhook/app167', async (req, res) => {
+  // Secret 検証（クエリパラメータ ?k=）
+  if (WEBHOOK_167_SECRET && req.query.k !== WEBHOOK_167_SECRET) {
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
+
+  try {
+    const { type, record } = req.body;
+
+    // ADD_RECORD / EDIT_RECORD のみ処理
+    if (type !== 'ADD_RECORD' && type !== 'EDIT_RECORD') {
+      return res.json({ ok: true, skipped: `type=${type}` });
+    }
+    if (!record) return res.json({ ok: true, skipped: 'no record' });
+
+    const kikakuId = record['企画ID']?.value;
+    if (!kikakuId) return res.json({ ok: true, skipped: 'no kikakuId' });
+
+    const siteDisplay = record['サイト表示']?.value;
+    const isPublished = Array.isArray(siteDisplay) && siteDisplay.includes('ON');
+
+    if (isPublished) {
+      // ── 公開: App 629 から画像を取得して R2 に同期 ──
+      const records629 = await fetchAllRecords(629, API_TOKEN_629,
+        `企画ID = "${kikakuId}"`,
+        ['企画ID', '貼り付け用画像_インサイト', '貼り付け用画像_FOTS']);
+      const rec629 = records629[0] || null;
+
+      const uploadResults = [];
+      for (const [brand, imgField] of Object.entries(BRAND_IMAGE_KEY)) {
+        const files = rec629?.[imgField]?.value;
+        if (!files?.length) continue;
+
+        const key = cardKey(kikakuId, brand);
+        if (versionsCache.has(key)) {
+          uploadResults.push({ key, status: 'skipped' });
+        } else if (await archiveExists(kikakuId, brand)) {
+          await restoreImage(kikakuId, brand);
+          uploadResults.push({ key, status: 'restored' });
+        } else {
+          await processAndUploadImage(files[0].fileKey, kikakuId, brand);
+          uploadResults.push({ key, status: 'uploaded' });
+        }
+      }
+
+      productsCache = { data: null, fetchedAt: null };
+      console.log(`[webhook/167] published kikakuId=${kikakuId}`, uploadResults);
+      return res.json({ ok: true, kikakuId, action: 'published', results: uploadResults });
+
+    } else {
+      // ── 非公開: R2 の画像を archive へ移動 ──
+      const archiveResults = [];
+      for (const brand of Object.keys(BRAND_IMAGE_KEY)) {
+        const key = cardKey(kikakuId, brand);
+        if (versionsCache.has(key)) {
+          await archiveImage(kikakuId, brand);
+          archiveResults.push({ key, status: 'archived' });
+        } else {
+          archiveResults.push({ key, status: 'skipped' });
+        }
+      }
+
+      productsCache = { data: null, fetchedAt: null };
+      console.log(`[webhook/167] unpublished kikakuId=${kikakuId}`, archiveResults);
+      return res.json({ ok: true, kikakuId, action: 'unpublished', results: archiveResults });
+    }
+
+  } catch (err) {
+    console.error('[webhook/167] error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
