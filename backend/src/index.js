@@ -7,6 +7,7 @@ const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...ar
 const { S3Client, GetObjectCommand, PutObjectCommand,
         CopyObjectCommand, DeleteObjectCommand, HeadObjectCommand } = require('@aws-sdk/client-s3');
 const sharp = require('sharp');
+const cron = require('node-cron');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -418,42 +419,48 @@ app.get('/api/products', requireAuth, async (_req, res) => {
   }
 });
 
+// ── Sync logic ────────────────────────────────────────────────────────────────
+async function runSync() {
+  const [records167, records629] = await Promise.all([
+    fetchAllRecords(167, API_TOKEN_167, 'サイト表示 in ("ON") order by $id asc',
+      ['企画ID', '非表示', 'サイト表示']),
+    fetchAllRecords(629, API_TOKEN_629, 'order by $id asc',
+      ['企画ID', '貼り付け用画像_インサイト', '貼り付け用画像_FOTS']),
+  ]);
+  const map629 = new Map(records629
+    .filter(r => r['企画ID']?.value)
+    .map(r => [r['企画ID'].value, r]));
+
+  const results = [];
+  for (const rec of records167) {
+    const kikakuId = rec['企画ID'].value;
+    const rec629 = map629.get(kikakuId);
+    if (!rec629) continue;
+    for (const [brand, imgField] of Object.entries(BRAND_IMAGE_KEY)) {
+      const files = rec629[imgField]?.value;
+      if (!files?.length) continue;
+      const key = cardKey(kikakuId, brand);
+      if (versionsCache.has(key)) {
+        results.push({ key, status: 'skipped' });
+        continue;
+      }
+      try {
+        await processAndUploadImage(files[0].fileKey, kikakuId, brand);
+        results.push({ key, status: 'uploaded' });
+      } catch (err) {
+        console.error(`[sync] error for ${key}:`, err.message);
+        results.push({ key, status: 'error', message: err.message });
+      }
+    }
+  }
+  productsCache = { data: null, fetchedAt: null };
+  return results;
+}
+
 // ── Admin: Full sync ──────────────────────────────────────────────────────────
 app.post('/api/admin/sync', requireAdmin, async (_req, res) => {
   try {
-    const [records167, records629] = await Promise.all([
-      fetchAllRecords(167, API_TOKEN_167, 'サイト表示 in ("ON") order by $id asc',
-        ['企画ID', '非表示', 'サイト表示']),
-      fetchAllRecords(629, API_TOKEN_629, 'order by $id asc',
-        ['企画ID', '貼り付け用画像_インサイト', '貼り付け用画像_FOTS']),
-    ]);
-    const map629 = new Map(records629
-      .filter(r => r['企画ID']?.value)
-      .map(r => [r['企画ID'].value, r]));
-
-    const results = [];
-    for (const rec of records167) {
-      const kikakuId = rec['企画ID'].value;
-      const rec629 = map629.get(kikakuId);
-      if (!rec629) continue;
-      for (const [brand, imgField] of Object.entries(BRAND_IMAGE_KEY)) {
-        const files = rec629[imgField]?.value;
-        if (!files?.length) continue;
-        const key = cardKey(kikakuId, brand);
-        if (versionsCache.has(key)) {
-          results.push({ key, status: 'skipped' });
-          continue;
-        }
-        try {
-          await processAndUploadImage(files[0].fileKey, kikakuId, brand);
-          results.push({ key, status: 'uploaded' });
-        } catch (err) {
-          console.error(`[sync] error for ${key}:`, err.message);
-          results.push({ key, status: 'error', message: err.message });
-        }
-      }
-    }
-    productsCache = { data: null, fetchedAt: null };
+    const results = await runSync();
     res.json({ synced: results.length, results });
   } catch (err) {
     console.error('[sync] error:', err);
@@ -564,4 +571,21 @@ app.post('/webhook/app167', async (req, res) => {
 app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
   await loadVersionsFromR2();
+
+  // ── Cron: 毎時 R2 同期（KrewSheet等でWebhookが発火しない場合の補完）────────
+  cron.schedule('0 * * * *', async () => {
+    console.log('[cron] hourly sync start');
+    try {
+      const results = await runSync();
+      const uploaded = results.filter(r => r.status === 'uploaded');
+      const errors   = results.filter(r => r.status === 'error');
+      console.log(`[cron] sync done — uploaded: ${uploaded.length}, errors: ${errors.length}, skipped: ${results.length - uploaded.length - errors.length}`);
+      if (errors.length > 0) {
+        errors.forEach(r => console.error(`[cron] error: ${r.key} — ${r.message}`));
+      }
+    } catch (err) {
+      console.error('[cron] sync failed:', err.message);
+    }
+  });
+  console.log('[cron] hourly sync scheduled');
 });
