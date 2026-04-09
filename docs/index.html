@@ -346,9 +346,12 @@
     </div>
     <div class="login-site-name">商材画像ダウンロードサイト</div>
     <p>パスワードを入力してください</p>
-    <input type="password" id="pw-input" placeholder="パスワード" autocomplete="current-password">
-    <button class="login-btn" id="login-btn">ログイン</button>
-    <div class="login-error" id="login-error"></div>
+    <form id="login-form" autocomplete="on">
+      <input type="text" name="username" autocomplete="username" value="user" style="display:none">
+      <input type="password" id="pw-input" name="password" placeholder="パスワード" autocomplete="current-password">
+      <button class="login-btn" type="submit">ログイン</button>
+      <div class="login-error" id="login-error"></div>
+    </form>
   </div>
 </div>
 
@@ -928,15 +931,10 @@ function showApp() {
 }
 
 // ── Event listeners ───────────────────────────────────────────────────────────
-document.getElementById('login-btn').addEventListener('click', () => {
+document.getElementById('login-form').addEventListener('submit', e => {
+  e.preventDefault();
   const pw = document.getElementById('pw-input').value;
   if (pw) login(pw);
-});
-document.getElementById('pw-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') {
-    const pw = e.target.value;
-    if (pw) login(pw);
-  }
 });
 
 document.getElementById('start-week-select').addEventListener('change', e => {
