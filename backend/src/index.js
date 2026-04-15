@@ -573,7 +573,7 @@ app.listen(PORT, async () => {
   await loadVersionsFromR2();
 
   // ── Cron: 5分ごと R2 同期（KrewSheet等でWebhookが発火しない場合の補完）──────
-  cron.schedule('*/5 * * * *', async () => {
+  cron.schedule('*/30 * * * *', async () => {
     console.log('[cron] hourly sync start');
     try {
       const results = await runSync();
